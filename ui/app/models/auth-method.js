@@ -2,7 +2,7 @@ import { alias } from '@ember/object/computed';
 import { computed } from '@ember/object';
 import DS from 'ember-data';
 import { fragment } from 'ember-data-model-fragments/attributes';
-import { queryRecord } from 'ember-computed-query';
+import { maybeQueryRecord } from 'vault/macros/maybe-query-record';
 import fieldToAttrs, { expandAttributeMeta } from 'vault/utils/field-to-attrs';
 import { memberAction } from 'ember-api-actions';
 import lazyCapabilities, { apiPath } from 'vault/macros/lazy-capabilities';
@@ -105,7 +105,7 @@ export default DS.Model.extend({
     }
   }),
 
-  configPath: queryRecord(
+  configPath: maybeQueryRecord(
     'capabilities',
     context => {
       const { id, configPathTmpl } = context.getProperties('id', 'configPathTmpl');
