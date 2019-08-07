@@ -18,8 +18,10 @@ generally it is best for the client to remove the file as soon as it is seen.
 
 It is also best practice to write the file to a ramdisk, ideally an encrypted
 ramdisk, and use appropriate filesystem permissions. The file is currently
-always written with `0640` permissions.
+written with `0640` permissions as default, but can be overridden with the optional
+'mode' setting.
 
 ## Configuration
 
 - `path` `(string: required)` - The path to use to write the token file
+- 'mode' '(int: optional)' - The file mode for the sink file
