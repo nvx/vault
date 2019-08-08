@@ -362,6 +362,11 @@ func (ts *TokenStore) paths() []*framework.Path {
 				Description: tokenDisallowedPoliciesHelp,
 			},
 
+			"allow_glob_policies": &framework.FieldSchema{
+				Type:        framework.TypeBool,
+				Description: tokenAllowGlobPoliciesHelp,
+			},
+
 			"orphan": &framework.FieldSchema{
 				Type:        framework.TypeBool,
 				Description: tokenOrphanHelp,
@@ -593,6 +598,9 @@ type tsRoleEntry struct {
 
 	// List of policies to be not allowed during token creation using this role
 	DisallowedPolicies []string `json:"disallowed_policies" mapstructure:"disallowed_policies" structs:"disallowed_policies"`
+
+	// If true, policies specified in allowed_policies and disallowed_policies will be matched as a glob
+	AllowGlobPolicies bool `json:"allow_glob_policies" mapstructure:"allow_glob_policies" structs:"allow_glob_policies"`
 
 	// If true, tokens created using this role will be orphans
 	Orphan bool `json:"orphan" mapstructure:"orphan" structs:"orphan"`
@@ -2366,7 +2374,8 @@ func (ts *TokenStore) handleCreateCommon(ctx context.Context, req *logical.Reque
 			if len(finalPolicies) == 0 {
 				finalPolicies = sanitizedRolePolicies
 			} else {
-				if !strutil.StrListSubsetGlob(sanitizedRolePolicies, finalPolicies) {
+				if !(!role.AllowGlobPolicies && strutil.StrListSubset(sanitizedRolePolicies, finalPolicies)) &&
+					!(role.AllowGlobPolicies && strutil.StrListSubsetGlob(sanitizedRolePolicies, finalPolicies)) {
 					return logical.ErrorResponse(fmt.Sprintf("token policies (%q) must be subset of the role's allowed policies (%q)", finalPolicies, sanitizedRolePolicies)), logical.ErrInvalidRequest
 				}
 			}
@@ -2383,7 +2392,8 @@ func (ts *TokenStore) handleCreateCommon(ctx context.Context, req *logical.Reque
 			sanitizedRolePolicies = strutil.RemoveDuplicates(role.DisallowedPolicies, true)
 
 			for _, finalPolicy := range finalPolicies {
-				if strutil.StrListContainsGlob(sanitizedRolePolicies, finalPolicy) {
+				if (!role.AllowGlobPolicies && strutil.StrListContains(sanitizedRolePolicies, finalPolicy)) ||
+					(role.AllowGlobPolicies && strutil.StrListContainsGlob(sanitizedRolePolicies, finalPolicy)) {
 					return logical.ErrorResponse(fmt.Sprintf("token policy %q is disallowed by this role", finalPolicy)), logical.ErrInvalidRequest
 				}
 			}
@@ -2441,8 +2451,10 @@ func (ts *TokenStore) handleCreateCommon(ctx context.Context, req *logical.Reque
 		}
 	}
 
-	// Remove any glob strings from policy list
-	te.Policies = strutil.RemoveGlobs(te.Policies)
+	if role != nil && role.AllowGlobPolicies {
+		// Remove any glob strings from policy list
+		te.Policies = strutil.RemoveGlobs(te.Policies)
+	}
 
 	if strutil.StrListContains(te.Policies, "root") {
 		// Prevent attempts to create a root token without an actual root token as parent.
@@ -3033,6 +3045,7 @@ func (ts *TokenStore) tokenStoreRoleRead(ctx context.Context, req *logical.Reque
 			"token_explicit_max_ttl": int64(role.TokenExplicitMaxTTL.Seconds()),
 			"disallowed_policies":    role.DisallowedPolicies,
 			"allowed_policies":       role.AllowedPolicies,
+			"allow_glob_policies":    role.AllowGlobPolicies,
 			"name":                   role.Name,
 			"orphan":                 role.Orphan,
 			"path_suffix":            role.PathSuffix,
@@ -3135,6 +3148,13 @@ func (ts *TokenStore) tokenStoreRoleCreateUpdate(ctx context.Context, req *logic
 			entry.DisallowedPolicies = strutil.RemoveDuplicates(disallowedPoliciesRaw.([]string), true)
 		} else if req.Operation == logical.CreateOperation {
 			entry.DisallowedPolicies = strutil.RemoveDuplicates(data.Get("disallowed_policies").([]string), true)
+		}
+
+		allowGlobPoliciesRaw, ok := data.GetOk("allow_glob_policies")
+		if ok {
+			entry.AllowGlobPolicies = allowGlobPoliciesRaw.(bool)
+		} else if req.Operation == logical.CreateOperation {
+			entry.AllowGlobPolicies = data.Get("allow_glob_policies").(bool)
 		}
 	}
 
@@ -3327,10 +3347,12 @@ as revocation of tokens. The tokens are renewable if associated with a lease.`
 	tokenAllowedPoliciesHelp = `If set, tokens can be created with any subset of the policies in this
 list, rather than the normal semantics of tokens being a subset of the
 calling token's policies. The parameter is a comma-delimited string of
-policy names or globs.`
+policy names or globs when allow_glob_policies is true.`
 	tokenDisallowedPoliciesHelp = `If set, successful token creation via this role will require that
 no policies in the given list are requested. The parameter is a comma-delimited string of policy names
-or globs.`
+or globs when allow_glob_policies is true.`
+	tokenAllowGlobPoliciesHelp = `If true, policies specified in allowed_policies and disallowed_policies
+will be matched as a glob.`
 	tokenOrphanHelp = `If true, tokens created via this role
 will be orphan tokens (have no parent)`
 	tokenPeriodHelp = `If set, tokens created via this role
