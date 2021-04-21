@@ -17,7 +17,13 @@ import (
 type kerberosMethod struct {
 	logger    hclog.Logger
 	mountPath string
-	loginCfg  *kerberos.LoginCfg
+
+	// used for SSPI
+	useSSPI         bool
+	sspiServiceName string
+
+	// used for go-krb5
+	loginCfg *kerberos.LoginCfg
 }
 
 func NewKerberosAuthMethod(conf *auth.AuthConfig) (auth.AuthMethod, error) {
@@ -27,11 +33,34 @@ func NewKerberosAuthMethod(conf *auth.AuthConfig) (auth.AuthMethod, error) {
 	if conf.Config == nil {
 		return nil, errors.New("empty config data")
 	}
-	username, err := read("username", conf.Config)
+	service, err := read("service", conf.Config)
 	if err != nil {
 		return nil, err
 	}
-	service, err := read("service", conf.Config)
+
+	useSSPI := false
+	useSSPIRaw, ok := conf.Config["use_sspi"]
+	if ok {
+		useSSPI, err = parseutil.ParseBool(useSSPIRaw)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing 'use_sspi': %s", err)
+		}
+	}
+
+	if useSSPI {
+		if !haveSSPI {
+			return nil, errors.New("platform does not support Kerberos SSPI")
+		}
+
+		return &kerberosMethod{
+			logger:          conf.Logger,
+			mountPath:       conf.MountPath,
+			useSSPI:         true,
+			sspiServiceName: service,
+		}, nil
+	}
+
+	username, err := read("username", conf.Config)
 	if err != nil {
 		return nil, err
 	}
@@ -60,6 +89,7 @@ func NewKerberosAuthMethod(conf *auth.AuthConfig) (auth.AuthMethod, error) {
 	return &kerberosMethod{
 		logger:    conf.Logger,
 		mountPath: conf.MountPath,
+		useSSPI:   false,
 		loginCfg: &kerberos.LoginCfg{
 			Username:               username,
 			Service:                service,
@@ -73,7 +103,13 @@ func NewKerberosAuthMethod(conf *auth.AuthConfig) (auth.AuthMethod, error) {
 
 func (k *kerberosMethod) Authenticate(context.Context, *api.Client) (string, http.Header, map[string]interface{}, error) {
 	k.logger.Trace("beginning authentication")
-	authHeaderVal, err := kerberos.GetAuthHeaderVal(k.loginCfg)
+	var authHeaderVal string
+	var err error
+	if !k.useSSPI {
+		authHeaderVal, err = kerberos.GetAuthHeaderVal(k.loginCfg)
+	} else {
+		authHeaderVal, err = sspiAuthHeader(k.sspiServiceName)
+	}
 	if err != nil {
 		return "", nil, nil, err
 	}

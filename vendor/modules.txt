@@ -110,6 +110,11 @@ github.com/aerospike/aerospike-client-go/pkg/ripemd160
 github.com/aerospike/aerospike-client-go/types
 github.com/aerospike/aerospike-client-go/types/rand
 github.com/aerospike/aerospike-client-go/utils/buffer
+# github.com/alexbrainman/sspi v0.0.0-20210105120005-909beea2cc74
+## explicit
+github.com/alexbrainman/sspi
+github.com/alexbrainman/sspi/internal/common
+github.com/alexbrainman/sspi/negotiate
 # github.com/aliyun/alibaba-cloud-sdk-go v0.0.0-20190620160927-9418d7b0cd0f
 ## explicit
 github.com/aliyun/alibaba-cloud-sdk-go/sdk
